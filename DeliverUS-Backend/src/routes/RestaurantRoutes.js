@@ -43,14 +43,6 @@ const loadFileRoutes = function (app) {
       RestaurantController.destroy)
 
   app.route('/restaurants/:restaurantId/togglePinned')
-    .patch(
-      isLoggedIn,
-      hasRole('owner'),
-      checkEntityExists(Restaurant, 'restaurantId'),
-      RestaurantMiddleware.checkRestaurantOwnership,
-      RestaurantController.pinnedAt
-
-    )
   app.route('/restaurants/:restaurantId/orders')
     .get(
       isLoggedIn,

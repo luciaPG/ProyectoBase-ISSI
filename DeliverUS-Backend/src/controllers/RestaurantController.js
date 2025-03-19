@@ -1,57 +1,64 @@
-import { where, Sequelize } from 'sequelize'
-import { Restaurant, Product, RestaurantCategory, ProductCategory } from '../models/models.js'
+import { Restaurant, Product, RestaurantCategory, ProductCategory, Performance } from '../models/models.js'
+// No te olvides de importar el modelo cuando añadas una tabla con include
+import { Op } from 'sequelize'
 const index = async function (req, res) {
+  const today = new Date(Date.now())
+  today.setHours(0, 0, 0, 0)
+  const nextWeekLimit = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  nextWeekLimit.setHours(0, 0, 0, 0)
   try {
-    const restaurants = await Restaurant.findAll(
-      {
-        attributes: { exclude: ['userId'] },
-        include:
+    const restaurants = await Restaurant.findAll({
+      attributes: { exclude: ['userId'] },
+      include: [ // <<<< CORRECCIÓN: Usar array para include
         {
           model: RestaurantCategory,
           as: 'restaurantCategory'
         },
-        order: [[{ model: RestaurantCategory, as: 'restaurantCategory' }, 'name', 'ASC']]
-      }
-    )
+        {
+          model: Performance,
+          as: 'performances',
+          where: {
+            appointment: { // <<<< Aquí está mal
+              [Op.and]: [{ [Op.gte]: today }, { [Op.lt]: nextWeekLimit }]
+            }
+          },
+          required: false
+        }
+      ],
+      order: [[{ model: RestaurantCategory, as: 'restaurantCategory' }, 'name', 'ASC']]
+    })
     res.json(restaurants)
   } catch (err) {
     res.status(500).send(err)
   }
 }
 
-async function _getNotPinnedRestaurants (req) {
-  return await Restaurant.findAll({
-    attributes: { exclude: ['userId'] },
-    where: {
-      userId: req.user.id,
-      pinnedAt: null
-    },
-    include: [{
-      model: RestaurantCategory,
-      as: 'restaurantCategory'
-    }]
-  })
-}
-
-async function _getPinnedRestaurants (req) {
-  return await Restaurant.findAll({
-    attributes: { exclude: ['userId'] },
-    where: {
-      userId: req.user.id,
-      pinnedAt: {
-        [Sequelize.Op.not]: null // Uso de Sequelize.Op.not para filtrar no nulos
-      }
-    },
-    order: [['pinnedAt', 'ASC']], // Ordenados ascendente por 'pinnedAt'
-    include: [{
-      model: RestaurantCategory,
-      as: 'restaurantCategory'
-    }]
-  })
-}
 const indexOwner = async function (req, res) {
+  const today = new Date(Date.now())
+  today.setHours(0, 0, 0, 0)
+  const nextWeekLimit = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  nextWeekLimit.setHours(0, 0, 0, 0)
   try {
-    const restaurants = [...(await _getPinnedRestaurants(req)), ...(await _getNotPinnedRestaurants(req))]
+    const restaurants = await Restaurant.findAll({
+      attributes: { exclude: ['userId'] },
+      where: { userId: req.user.id },
+      include: [{
+        model: RestaurantCategory,
+        as: 'restaurantCategory'
+      },
+      {
+        model: Performance,
+        as: 'performances',
+        where: {
+          appointment: { // <<<< Aquí está mal
+            [Op.and]: [{ [Op.gte]: today }, { [Op.lt]: nextWeekLimit }]
+          }
+        },
+        required: false
+      }
+
+      ]
+    })
     res.json(restaurants)
   } catch (err) {
     res.status(500).send(err)
@@ -62,20 +69,7 @@ const create = async function (req, res) {
   const newRestaurant = Restaurant.build(req.body)
   newRestaurant.userId = req.user.id // usuario actualmente autenticado
   try {
-    if (req.body.pinned) {
-      newRestaurant.pinnedAt = new Date()
-    }
     const restaurant = await newRestaurant.save()
-    res.json(restaurant)
-  } catch (err) {
-    res.status(500).send(err)
-  }
-}
-const pinnedAt = async function (req, res) {
-  try {
-    const restaurant = await Restaurant.findByPk(req.params.restaurantId)
-    restaurant.pinnedAt = restaurant.pinnedAt ? null : new Date()
-    restaurant.save()
     res.json(restaurant)
   } catch (err) {
     res.status(500).send(err)
@@ -83,7 +77,11 @@ const pinnedAt = async function (req, res) {
 }
 
 const show = async function (req, res) {
-  // Only returns PUBLIC information of restaurants
+  // Solo devuelve información pública de restaurantes
+  const today = new Date(Date.now())
+  today.setHours(0, 0, 0, 0)
+  const nextWeekLimit = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  nextWeekLimit.setHours(0, 0, 0, 0)
   try {
     const restaurant = await Restaurant.findByPk(req.params.restaurantId, {
       attributes: { exclude: ['userId'] },
@@ -95,11 +93,19 @@ const show = async function (req, res) {
       {
         model: RestaurantCategory,
         as: 'restaurantCategory'
-      }],
-      // need to touch the order of the products
+      }, {
+        model: Performance,
+        as: 'performances',
+        where: {
+          appointment: {
+            [Op.and]: [{ [Op.gte]: today }, { [Op.lt]: nextWeekLimit }]
+          }
+        },
+        required: false
+      }
+      ],
       order: [[{ model: Product, as: 'products' }, 'order', 'ASC']]
-    }
-    )
+    })
     res.json(restaurant)
   } catch (err) {
     res.status(500).send(err)
@@ -121,9 +127,9 @@ const destroy = async function (req, res) {
     const result = await Restaurant.destroy({ where: { id: req.params.restaurantId } })
     let message = ''
     if (result === 1) {
-      message = 'Sucessfuly deleted restaurant id.' + req.params.restaurantId
+      message = 'Restaurant con ID ' + req.params.restaurantId + ' eliminado exitosamente.' // Corrección de ortografía
     } else {
-      message = 'Could not delete restaurant.'
+      message = 'No se pudo eliminar el restaurante.'
     }
     res.json(message)
   } catch (err) {
@@ -137,7 +143,6 @@ const RestaurantController = {
   create,
   show,
   update,
-  destroy,
-  pinnedAt
+  destroy
 }
 export default RestaurantController
